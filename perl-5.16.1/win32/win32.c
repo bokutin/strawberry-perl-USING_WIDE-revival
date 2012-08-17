@@ -812,7 +812,7 @@ win32_opendir(const char *filename)
     scanname[len] = '\0';
 
     /* do the FindFirstFile call */
-    MultiByteToWideChar(CP_ACP, 0, scanname, -1, wscanname, sizeof(wscanname)/sizeof(WCHAR));
+    A2WHELPER(scanname, wscanname, sizeof(wscanname));
     dirp->handle = FindFirstFileW(PerlDir_mapW(wscanname), &wFindData);
 
     if (dirp->handle == INVALID_HANDLE_VALUE) {
@@ -837,14 +837,9 @@ win32_opendir(const char *filename)
     }
 
     use_default = FALSE;
-    WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
+    WideCharToMultiByte(CP_UTF8, 0,
                         wFindData.cFileName, -1,
-                        buffer, sizeof(buffer), NULL, &use_default);
-    if (use_default && *wFindData.cAlternateFileName) {
-        WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
-                            wFindData.cAlternateFileName, -1,
-                            buffer, sizeof(buffer), NULL, NULL);
-    }
+                        buffer, sizeof(buffer), NULL, NULL);
 
     /* now allocate the first part of the string table for
      * the filenames that we find.
@@ -898,14 +893,9 @@ win32_readdir(DIR *dirp)
 		res = FindNextFileW(dirp->handle, &wFindData);
 		if (res) {
                     BOOL use_default = FALSE;
-                    WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
+                    WideCharToMultiByte(CP_UTF8, 0,
                                         wFindData.cFileName, -1,
-                                        buffer, sizeof(buffer), NULL, &use_default);
-                    if (use_default && *wFindData.cAlternateFileName) {
-                        WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
-                                            wFindData.cAlternateFileName, -1,
-                                            buffer, sizeof(buffer), NULL, NULL);
-                    }
+                                        buffer, sizeof(buffer), NULL, NULL);
                 }
             }
 	    if (res) {
@@ -1370,6 +1360,7 @@ win32_stat(const char *path, Stat_t *sbuf)
     int		res;
     int         nlink = 1;
     BOOL        expect_dir = FALSE;
+    WCHAR	wpath[MAX_PATH+1];
 
     GV          *gv_sloppy = gv_fetchpvs("\027IN32_SLOPPY_STAT",
                                          GV_NOTQUAL, SVt_PV);
@@ -1412,14 +1403,15 @@ win32_stat(const char *path, Stat_t *sbuf)
 	}
     }
 
-    path = PerlDir_mapA(path);
-    l = strlen(path);
+    A2WHELPER(path, wpath, sizeof(wpath));
+    wcscpy(wpath, PerlDir_mapW(wpath));
+    l = wcslen(wpath);
 
     if (!sloppy) {
         /* We must open & close the file once; otherwise file attribute changes  */
         /* might not yet have propagated to "other" hard links of the same file. */
         /* This also gives us an opportunity to determine the number of links.   */
-        HANDLE handle = CreateFileA(path, 0, 0, NULL, OPEN_EXISTING, 0, NULL);
+        HANDLE handle = CreateFileW(wpath, 0, 0, NULL, OPEN_EXISTING, 0, NULL);
         if (handle != INVALID_HANDLE_VALUE) {
             BY_HANDLE_FILE_INFORMATION bhi;
             if (GetFileInformationByHandle(handle, &bhi))
@@ -1430,9 +1422,9 @@ win32_stat(const char *path, Stat_t *sbuf)
 
     /* path will be mapped correctly above */
 #if defined(WIN64) || defined(USE_LARGE_FILES)
-    res = _stati64(path, sbuf);
+    res = _wstati64(wpath, sbuf);
 #else
-    res = stat(path, sbuf);
+    res = _wstat(wpath, sbuf);
 #endif
     sbuf->st_nlink = nlink;
 
@@ -1441,7 +1433,7 @@ win32_stat(const char *path, Stat_t *sbuf)
 	 * XXX using GetFileAttributesEx() will enable us to set
 	 * sbuf->st_*time (but note that's not available on the
 	 * Windows of 1995) */
-	DWORD r = GetFileAttributesA(path);
+	DWORD r = GetFileAttributesW(wpath);
 	if (r != 0xffffffff && (r & FILE_ATTRIBUTE_DIRECTORY)) {
 	    /* sbuf may still contain old garbage since stat() failed */
 	    Zero(sbuf, 1, Stat_t);
@@ -1457,7 +1449,7 @@ win32_stat(const char *path, Stat_t *sbuf)
 	    && (path[2] == '\\' || path[2] == '/'))
 	{
 	    /* The drive can be inaccessible, some _stat()s are buggy */
-	    if (!GetVolumeInformationA(path,NULL,0,NULL,NULL,NULL,NULL,0)) {
+	    if (!GetVolumeInformationW(wpath,NULL,0,NULL,NULL,NULL,NULL,0)) {
 		errno = ENOENT;
 		return -1;
 	    }
@@ -1473,7 +1465,7 @@ win32_stat(const char *path, Stat_t *sbuf)
 	     * (directories are indeed always writable unless denied by DACLs),
 	     * but we want stat() and -w to reflect the state of the read-only
 	     * attribute for symmetry with chmod(). */
-	    DWORD r = GetFileAttributesA(path);
+	    DWORD r = GetFileAttributesW(wpath);
 	    if (r != 0xffffffff && (r & FILE_ATTRIBUTE_READONLY)) {
 		sbuf->st_mode &= ~S_IWRITE;
 	    }
@@ -1806,21 +1798,24 @@ win32_unlink(const char *filename)
     dTHX;
     int ret;
     DWORD attrs;
+    WCHAR wfilename[MAX_PATH+1];
 
-    filename = PerlDir_mapA(filename);
-    attrs = GetFileAttributesA(filename);
+    A2WHELPER(filename, wfilename, sizeof(wfilename));
+
+    wcscpy(wfilename, PerlDir_mapW(wfilename));
+    attrs = GetFileAttributesW(wfilename);
     if (attrs == 0xFFFFFFFF) {
         errno = ENOENT;
         return -1;
     }
     if (attrs & FILE_ATTRIBUTE_READONLY) {
-        (void)SetFileAttributesA(filename, attrs & ~FILE_ATTRIBUTE_READONLY);
-        ret = unlink(filename);
+        (void)SetFileAttributesW(wfilename, attrs & ~FILE_ATTRIBUTE_READONLY);
+        ret = _wunlink(wfilename);
         if (ret == -1)
-            (void)SetFileAttributesA(filename, attrs);
+            (void)SetFileAttributesW(wfilename, attrs);
     }
     else
-        ret = unlink(filename);
+        ret = _wunlink(wfilename);
     return ret;
 }
 
@@ -1834,9 +1829,12 @@ win32_utime(const char *filename, struct utimbuf *times)
     FILETIME ftWrite;
     struct utimbuf TimeBuffer;
     int rc;
+    WCHAR wfilename[MAX_PATH+1];
 
-    filename = PerlDir_mapA(filename);
-    rc = utime(filename, times);
+    A2WHELPER(filename, wfilename, sizeof(wfilename));
+
+    wcscpy(wfilename, PerlDir_mapW(wfilename));
+    rc = _wutime(wfilename, times);
 
     /* EACCES: path specifies directory or readonly file */
     if (rc == 0 || errno != EACCES)
@@ -1849,7 +1847,7 @@ win32_utime(const char *filename, struct utimbuf *times)
     }
 
     /* This will (and should) still fail on readonly files */
-    handle = CreateFileA(filename, GENERIC_READ | GENERIC_WRITE,
+    handle = CreateFileW(wfilename, GENERIC_READ | GENERIC_WRITE,
                          FILE_SHARE_READ | FILE_SHARE_DELETE, NULL,
                          OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
     if (handle == INVALID_HANDLE_VALUE)
@@ -2529,14 +2527,17 @@ win32_fopen(const char *filename, const char *mode)
 {
     dTHX;
     FILE *f;
+    WCHAR wfilename[MAX_PATH+1];
 
     if (!*filename)
 	return NULL;
 
-    if (stricmp(filename, "/dev/null")==0)
-	filename = "NUL";
+    A2WHELPER(filename, wfilename, sizeof(wfilename));
 
-    f = fopen(PerlDir_mapA(filename), mode);
+    if (wcsicmp(wfilename, L"/dev/null")==0)
+	wcscpy(wfilename, L"NUL");
+
+    f = _wfopen(PerlDir_mapW(wfilename), mode);
     /* avoid buffering headaches for child processes */
     if (f && *mode == 'a')
 	win32_fseek(f, 0, SEEK_END);
@@ -2918,10 +2919,13 @@ win32_link(const char *oldname, const char *newname)
     WCHAR wOldName[MAX_PATH+1];
     WCHAR wNewName[MAX_PATH+1];
 
-    if (MultiByteToWideChar(CP_ACP, 0, oldname, -1, wOldName, MAX_PATH+1) &&
-        MultiByteToWideChar(CP_ACP, 0, newname, -1, wNewName, MAX_PATH+1) &&
-	(wcscpy(wOldName, PerlDir_mapW(wOldName)),
-        CreateHardLinkW(PerlDir_mapW(wNewName), wOldName, NULL)))
+    A2WHELPER(oldname, wOldName, sizeof(wOldName));
+    A2WHELPER(newname, wNewName, sizeof(wNewName));
+
+    wcscpy(wOldName, PerlDir_mapW(wOldName));
+    wcscpy(wNewName, PerlDir_mapW(wNewName));
+
+    if ( CreateHardLinkW(PerlDir_mapW(wNewName), wOldName, NULL) )
     {
 	return 0;
     }
@@ -2932,16 +2936,21 @@ win32_link(const char *oldname, const char *newname)
 DllExport int
 win32_rename(const char *oname, const char *newname)
 {
-    char szOldName[MAX_PATH+1];
     BOOL bResult;
     DWORD dwFlags = MOVEFILE_COPY_ALLOWED;
     dTHX;
+    WCHAR wszOldName[MAX_PATH+1];
+    WCHAR woname[MAX_PATH+1];
+    WCHAR wnewname[MAX_PATH+1];
 
-    if (stricmp(newname, oname))
+    A2WHELPER(oname  , woname  , sizeof(woname));
+    A2WHELPER(newname, wnewname, sizeof(wnewname));
+
+    if (wcsicmp(wnewname, woname))
         dwFlags |= MOVEFILE_REPLACE_EXISTING;
-    strcpy(szOldName, PerlDir_mapA(oname));
+    wcscpy(wszOldName, PerlDir_mapW(woname));
 
-    bResult = MoveFileExA(szOldName,PerlDir_mapA(newname), dwFlags);
+    bResult = MoveFileExW(wszOldName,PerlDir_mapW(wnewname), dwFlags);
     if (!bResult) {
         DWORD err = GetLastError();
         switch (err) {
@@ -3045,15 +3054,18 @@ win32_open(const char *path, int flag, ...)
     dTHX;
     va_list ap;
     int pmode;
+    WCHAR wpath[MAX_PATH+1];
 
     va_start(ap, flag);
     pmode = va_arg(ap, int);
     va_end(ap);
 
-    if (stricmp(path, "/dev/null")==0)
-	path = "NUL";
+    A2WHELPER(path, wpath, sizeof(wpath));
 
-    return open(PerlDir_mapA(path), flag, pmode);
+    if (wcsicmp(wpath, L"/dev/null")==0)
+	wcscpy(wpath, L"NUL");
+
+    return _wopen(PerlDir_mapW(wpath), flag, pmode);
 }
 
 /* close() that understands socket */
@@ -3120,14 +3132,20 @@ DllExport int
 win32_mkdir(const char *dir, int mode)
 {
     dTHX;
-    return mkdir(PerlDir_mapA(dir)); /* just ignore mode */
+    WCHAR wdir[MAX_PATH+1];
+
+    A2WHELPER(dir, wdir, sizeof(wdir));
+    return _wmkdir(PerlDir_mapW(wdir)); /* just ignore mode */
 }
 
 DllExport int
 win32_rmdir(const char *dir)
 {
     dTHX;
-    return rmdir(PerlDir_mapA(dir));
+    WCHAR wdir[MAX_PATH+1];
+
+    A2WHELPER(dir, wdir, sizeof(wdir));
+    return _wrmdir(PerlDir_mapW(wdir));
 }
 
 DllExport int
@@ -3152,9 +3170,12 @@ DllExport  int
 win32_chmod(const char *path, int mode)
 {
     dTHX;
-    return chmod(PerlDir_mapA(path), mode);
-}
+    WCHAR wpath[MAX_PATH+1];
 
+    A2WHELPER(path, wpath, sizeof(wpath));
+
+    return _wchmod(PerlDir_mapW(wpath), mode);
+}
 
 static char *
 create_command_line(char *cname, STRLEN clen, const char * const *args)
@@ -3455,7 +3476,6 @@ win32_free_childdir(char* d)
     Safefree(d);
 }
 
-
 /* XXX this needs to be made more compatible with the spawnvp()
  * provided by the various RTLs.  In particular, searching for
  * *.{com,bat,cmd} files (as done by the RTLs) is unimplemented.
@@ -3485,6 +3505,9 @@ win32_spawnvp(int mode, const char *cmdname, const char *const *argv)
     char *fullcmd = NULL;
     char *cname = (char *)cmdname;
     STRLEN clen = 0;
+    WCHAR wcname[MAX_PATH+1];
+    WCHAR wcmd[MAX_PATH+1];
+    WCHAR wdir[MAX_PATH+1];
 
     if (cname) {
 	clen = strlen(cname);
@@ -3562,14 +3585,17 @@ win32_spawnvp(int mode, const char *cmdname, const char *const *argv)
     DEBUG_p(PerlIO_printf(Perl_debug_log, "Spawning [%s] with [%s]\n",
 			  cname,cmd));
 RETRY:
-    if (!CreateProcess(cname,		/* search PATH to find executable */
-		       cmd,		/* executable, and its arguments */
+    A2WHELPER(cname , wcname , sizeof(wcname));
+    A2WHELPER(cmd   , wcmd   , sizeof(wcmd));
+    A2WHELPER(dir   , wdir   , sizeof(wdir));
+    if (!CreateProcessW(wcname,		/* search PATH to find executable */
+		       wcmd,		/* executable, and its arguments */
 		       NULL,		/* process attributes */
 		       NULL,		/* thread attributes */
 		       TRUE,		/* inherit handles */
 		       create,		/* creation flags */
 		       (LPVOID)env,	/* inherit environment */
-		       dir,		/* inherit cwd */
+		       wdir,		/* inherit cwd */
 		       &StartupInfo,
 		       &ProcessInformation))
     {

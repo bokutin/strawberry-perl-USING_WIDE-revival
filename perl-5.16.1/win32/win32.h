@@ -510,3 +510,7 @@ DllExport void *win32_signal_context(void);
 
 #endif /* _INC_WIN32_PERL5 */
 
+#define A2WHELPER_LEN(lpa, alen, lpw, nBytes)\
+    (lpw[0] = 0, MultiByteToWideChar((is_utf8_string(lpa,strlen(lpa))) ? CP_UTF8 : CP_ACP, 0, \
+				    lpa, alen, lpw, (nBytes/sizeof(WCHAR))))
+#define A2WHELPER(lpa, lpw, nBytes)	A2WHELPER_LEN(lpa, -1, lpw, nBytes)

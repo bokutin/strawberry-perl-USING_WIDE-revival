@@ -921,6 +921,9 @@ all : CHECKDMAKE .\config.h ..\git_version.h $(GLOBEXE) $(MINIPERL)	\
 	$(MINIMOD) $(CONFIGPM) $(UNIDATAFILES) MakePPPort		\
 	$(PERLEXE) $(X2P) Extensions Extensions_nonxs $(PERLSTATIC)
 
+wide : CHECKDMAKE .\config.h ..\git_version.h $(GLOBEXE) $(MINIPERL) 	\
+	$(PERLDLL) $(UNIDATAFILES)
+
 regnodes : ..\regnodes.h
 
 ..\regcomp$(o) : ..\regnodes.h ..\regcharclass.h
@@ -1202,7 +1205,11 @@ Extensions_nonxs : ..\make_ext.pl ..\lib\buildcustomize.pl $(PERLDEP) $(CONFIGPM
 	$(XCOPY) ..\*.h $(COREDIR)\*.*
 	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(MAKE)" --dir=$(CPANDIR) --dir=$(DISTDIR) --dir=$(EXTDIR) --nonxs
 
-$(DYNALOADER) : ..\make_ext.pl ..\lib\buildcustomize.pl $(PERLDEP) $(CONFIGPM) Extensions_nonxs
+#$(DYNALOADER) : ..\make_ext.pl ..\lib\buildcustomize.pl $(PERLDEP) $(CONFIGPM) Extensions_nonxs
+#	$(XCOPY) ..\*.h $(COREDIR)\*.*
+#	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(MAKE)" --dir=$(EXTDIR) --dynaloader
+
+$(DYNALOADER) :
 	$(XCOPY) ..\*.h $(COREDIR)\*.*
 	$(MINIPERL) -I..\lib ..\make_ext.pl "MAKE=$(MAKE)" --dir=$(EXTDIR) --dynaloader
 

@@ -4163,6 +4163,7 @@ S_init_postdump_symbols(pTHX_ register int argc, register char **argv, register 
     }
     if ((PL_envgv = gv_fetchpvs("ENV", GV_ADD|GV_NOTQUAL, SVt_PVHV))) {
 	HV *hv;
+	HE *he;
 	bool env_is_not_environ;
 	GvMULTI_on(PL_envgv);
 	hv = GvHVn(PL_envgv);
@@ -4185,26 +4186,93 @@ S_init_postdump_symbols(pTHX_ register int argc, register char **argv, register 
 	{
 	    environ[0] = NULL;
 	}
+//	if (env) {
+//	  char *s, *old_var;
+//	  SV *sv;
+//
+//	  for (; *env; env++) {
+//	    old_var = *env;
+//
+//	    if (!(s = strchr(old_var,'=')) || s == old_var)
+//		continue;
+//
+//#if defined(MSDOS) && !defined(DJGPP)
+//	    *s = '\0';
+//	    (void)strupr(old_var);
+//	    *s = '=';
+//#endif
+//	    sv = newSVpv(s+1, 0);
+//	    (void)hv_store(hv, old_var, s - old_var, sv, 0);
+//	    if (env_is_not_environ)
+//	        mg_set(sv);
+//	  }
+//      }
+
 	if (env) {
-	  char *s, *old_var;
-	  SV *sv;
-	  for (; *env; env++) {
-	    old_var = *env;
+	  int num_of_keys = 0;
+	  int key_bytes, val_bytes;
+	  SV *sv_key, *sv_val;
+	  WCHAR **wenv;
+	  WCHAR *env_str, *env_str_l, *env_str_r, *env_str_e;
+	  char *key, *val;
 
-	    if (!(s = strchr(old_var,'=')) || s == old_var)
-		continue;
+	  env_str_l = env_str = GetEnvironmentStringsW();
 
-#if defined(MSDOS) && !defined(DJGPP)
-	    *s = '\0';
-	    (void)strupr(old_var);
-	    *s = '=';
-#endif
-	    sv = newSVpv(s+1, 0);
-	    (void)hv_store(hv, old_var, s - old_var, sv, 0);
-	    if (env_is_not_environ)
-	        mg_set(sv);
+	  while ( (env_str_r = wcschr(env_str_l,L'\0')) && env_str_l != env_str_r ) {
+	    if (!(env_str_e = wcschr(env_str_l,L'=')) || env_str_e == env_str_l) {
+	    }
+	    else {
+	      num_of_keys++;
+	    }
+
+	    env_str_l = env_str_r+1;
 	  }
-      }
+
+	  wenv = (WCHAR **)malloc(sizeof(WCHAR *)*(num_of_keys+1));
+
+	  env_str_l = env_str;
+	  while ( (env_str_r = wcschr(env_str_l,L'\0')) && env_str_l != env_str_r ) {
+	    if (!(env_str_e = wcschr(env_str_l,L'=')) || env_str_e == env_str_l) {
+	      env_str_l = env_str_r+1;
+	      continue;
+	    }
+
+	    key_bytes = WideCharToMultiByte(CP_UTF8, 0, env_str_l,   (env_str_e - env_str_l),     0, 0, NULL, NULL);
+	    val_bytes = WideCharToMultiByte(CP_UTF8, 0, env_str_e+1, (env_str_r - env_str_e - 1), 0, 0, NULL, NULL);
+
+	    key = (char *)malloc(key_bytes+1);
+	    val = (char *)malloc(val_bytes+1);
+
+	    WideCharToMultiByte(CP_UTF8, 0, env_str_l,   (env_str_e - env_str_l),     key, key_bytes, NULL, NULL);
+	    WideCharToMultiByte(CP_UTF8, 0, env_str_e+1, (env_str_r - env_str_e - 1), val, val_bytes, NULL, NULL);
+	    key[key_bytes] = '\0';
+	    val[val_bytes] = '\0';
+
+	    sv_key = newSVpv(key, 0);
+	    sv_val = newSVpv(val, 0);
+
+	    he = hv_store_ent(hv, sv_key, sv_val, 0);
+
+	    if (!is_ascii_string(key,key_bytes)) {
+		SvUTF8_on(sv_key);
+		HEK_UTF8_on(HeKEY_hek(he));
+	    }
+	    if (!is_ascii_string(val,val_bytes)) {
+		SvUTF8_on(sv_val);
+	    }
+
+	    if (env_is_not_environ)
+	        mg_set(sv_val);
+	
+	    env_str_l = env_str_r+1;
+
+	    free(key);
+	    free(val);
+	  }
+
+	  free(wenv);
+	  FreeEnvironmentStringsW(env_str);
+	}
 #endif /* USE_ENVIRON_ARRAY */
 #endif /* !PERL_MICRO */
     }

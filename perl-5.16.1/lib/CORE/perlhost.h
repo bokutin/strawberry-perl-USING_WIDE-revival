@@ -2426,11 +2426,21 @@ CPerlHost::Chdir(const char *dirname)
 {
     dTHX;
     int ret;
+    int l = strlen(dirname);
+    WCHAR wdirname[MAX_PATH+1];
+
     if (!dirname) {
 	errno = ENOENT;
 	return -1;
     }
-    ret = m_pvDir->SetCurrentDirectoryA((char*)dirname);
+
+    wdirname[0] = 0;
+    MultiByteToWideChar(
+       is_utf8_string((const U8*)dirname, l) ? CP_UTF8 : CP_ACP,
+       0, dirname, -1, wdirname, sizeof(wdirname)/sizeof(WCHAR)
+    );
+
+    ret = m_pvDir->SetCurrentDirectoryW(wdirname);
     if(ret < 0) {
 	errno = ENOENT;
     }

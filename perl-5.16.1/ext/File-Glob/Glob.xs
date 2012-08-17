@@ -50,7 +50,7 @@ doglob(pTHX_ const char *pattern, int flags)
 	for (i = 0; i < pglob.gl_pathc; i++) {
 	    /* printf("# bsd_glob: %s\n", pglob.gl_pathv[i]); */
 	    tmp = newSVpvn_flags(pglob.gl_pathv[i], strlen(pglob.gl_pathv[i]),
-				 SVs_TEMP);
+		    SVs_TEMP | (is_utf8_string(pglob.gl_pathv[i], strlen(pglob.gl_pathv[i]))) ? SVf_UTF8 : 0);
 	    TAINT;
 	    SvTAINT(tmp);
 	    PUSHs(tmp);
