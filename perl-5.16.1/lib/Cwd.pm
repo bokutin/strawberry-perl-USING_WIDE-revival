@@ -752,6 +752,7 @@ sub _win32_cwd_simple {
     return $ENV{'PWD'};
 }
 
+my $CP_NUM;
 sub _win32_cwd {
     # Need to avoid taking any sort of reference to the typeglob or the code in
     # the optree, so that this tests the runtime state of things, as the
@@ -761,7 +762,18 @@ sub _win32_cwd {
     # problems (for reasons that we haven't been able to get to the bottom of -
     # rt.cpan.org #56225)
     if (*{$DynaLoader::{boot_DynaLoader}}{CODE}) {
-	$ENV{'PWD'} = Win32::GetCwd();
+        my $short   = Win32::GetCwd();
+        my $long    = Win32::GetLongPathName($short);
+        my $decoded = utf8::is_utf8($long) ? $long : do {
+            $CP_NUM ||= do {
+                my $out = `chcp`;
+                $out =~ m/ (\d+)$/ or die;
+                $1;
+            };
+            require Encode;
+            Encode::decode("cp$CP_NUM", $long);
+        };
+        $ENV{'PWD'} = $decoded;
     }
     else { # miniperl
 	chomp($ENV{'PWD'} = `cd`);

@@ -1702,14 +1702,17 @@ DllExport int
 win32_putenv(const char *name)
 {
     dTHX;
-    char* curitem;
-    char* val;
+    WCHAR* curitem;
+    WCHAR* val;
     int relval = -1;
+    DWORD needlen;
 
     if (name) {
-        Newx(curitem,strlen(name)+1,char);
-        strcpy(curitem, name);
-        val = strchr(curitem, '=');
+	needlen = A2WHELPER_NEEDLEN(name);
+	Newx(curitem,needlen+1,WCHAR);
+	A2WHELPER(name, curitem, needlen+1);
+
+        val = wcschr(curitem, L'=');
         if (val) {
             /* The sane way to deal with the environment.
              * Has these advantages over putenv() & co.:
@@ -1727,8 +1730,8 @@ win32_putenv(const char *name)
              *    functions directly, either.
              * GSAR 97-06-07
              */
-            *val++ = '\0';
-            if (SetEnvironmentVariableA(curitem, *val ? val : NULL))
+            *val++ = L'\0';
+            if (SetEnvironmentVariableW(curitem, *val ? val : NULL))
                 relval = 0;
         }
         Safefree(curitem);
@@ -1834,7 +1837,7 @@ win32_utime(const char *filename, struct utimbuf *times)
     A2WHELPER(filename, wfilename, sizeof(wfilename));
 
     wcscpy(wfilename, PerlDir_mapW(wfilename));
-    rc = _wutime(wfilename, times);
+    rc = _wutime(wfilename, (struct _utimbuf*)times);
 
     /* EACCES: path specifies directory or readonly file */
     if (rc == 0 || errno != EACCES)
@@ -2527,20 +2530,27 @@ win32_fopen(const char *filename, const char *mode)
 {
     dTHX;
     FILE *f;
+    DWORD needlen;
     WCHAR wfilename[MAX_PATH+1];
+    WCHAR *wmode;
 
     if (!*filename)
 	return NULL;
 
     A2WHELPER(filename, wfilename, sizeof(wfilename));
+    needlen = A2WHELPER_NEEDLEN(mode);
+    Newx(wmode, needlen, WCHAR);
 
     if (wcsicmp(wfilename, L"/dev/null")==0)
 	wcscpy(wfilename, L"NUL");
 
-    f = _wfopen(PerlDir_mapW(wfilename), mode);
+    f = _wfopen(PerlDir_mapW(wfilename), wmode);
     /* avoid buffering headaches for child processes */
-    if (f && *mode == 'a')
+    if (f && *wmode == L'a')
 	win32_fseek(f, 0, SEEK_END);
+
+    Safefree(wmode);
+
     return f;
 }
 
@@ -3498,7 +3508,7 @@ win32_spawnvp(int mode, const char *cmdname, const char *const *argv)
     void* env;
     char* dir;
     child_IO_table tbl;
-    STARTUPINFO StartupInfo;
+    STARTUPINFOW StartupInfo;
     PROCESS_INFORMATION ProcessInformation;
     DWORD create = 0;
     char *cmd;
@@ -3506,8 +3516,9 @@ win32_spawnvp(int mode, const char *cmdname, const char *const *argv)
     char *cname = (char *)cmdname;
     STRLEN clen = 0;
     WCHAR wcname[MAX_PATH+1];
-    WCHAR wcmd[MAX_PATH+1];
     WCHAR wdir[MAX_PATH+1];
+    DWORD needlen;
+    WCHAR *wcmd;
 
     if (cname) {
 	clen = strlen(cname);
@@ -3586,8 +3597,12 @@ win32_spawnvp(int mode, const char *cmdname, const char *const *argv)
 			  cname,cmd));
 RETRY:
     A2WHELPER(cname , wcname , sizeof(wcname));
-    A2WHELPER(cmd   , wcmd   , sizeof(wcmd));
     A2WHELPER(dir   , wdir   , sizeof(wdir));
+    //A2WHELPER(cmd   , wcmd   , sizeof(wcmd));
+    needlen = A2WHELPER_NEEDLEN(cmd);
+    Newx(wcmd, needlen, WCHAR);
+    A2WHELPER(cmd, wcmd, needlen*sizeof(WCHAR));
+
     if (!CreateProcessW(wcname,		/* search PATH to find executable */
 		       wcmd,		/* executable, and its arguments */
 		       NULL,		/* process attributes */
@@ -3647,6 +3662,7 @@ RETVAL:
     PerlEnv_free_childenv(env);
     PerlEnv_free_childdir(dir);
     Safefree(cmd);
+    Safefree(wcmd);
     if (cname != cmdname)
 	Safefree(cname);
     return ret;
@@ -3661,9 +3677,9 @@ win32_execv(const char *cmdname, const char *const *argv)
     /* if this is a pseudo-forked child, we just want to spawn
      * the new program, and return */
     if (w32_pseudo_id)
-	return spawnv(P_WAIT, cmdname, argv);
+	return spawnv(P_WAIT, cmdname, (char * const*)argv);
 #endif
-    return execv(cmdname, argv);
+    return execv(cmdname, (char * const*)argv);
 }
 
 DllExport int
@@ -3683,7 +3699,7 @@ win32_execvp(const char *cmdname, const char *const *argv)
 	    return status;
     }
 #endif
-    return execvp(cmdname, argv);
+    return execvp(cmdname, (char * const*)argv);
 }
 
 DllExport void

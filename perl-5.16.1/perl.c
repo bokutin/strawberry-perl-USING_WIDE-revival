@@ -4097,10 +4097,17 @@ S_init_predump_symbols(pTHX)
     PL_statname = newSVpvs("");		/* last filename we did stat on */
 }
 
+extern int _CRT_glob;
+void __wgetmainargs(int*,wchar_t***,wchar_t***,int,int*);
+
 void
 Perl_init_argv_symbols(pTHX_ register int argc, register char **argv)
 {
     dVAR;
+    int argcw, si = 0;
+    DWORD needlen;
+    char *buf;
+    wchar_t **argvw, **envw;
 
     PERL_ARGS_ASSERT_INIT_ARGV_SYMBOLS;
 
@@ -4123,19 +4130,34 @@ Perl_init_argv_symbols(pTHX_ register int argc, register char **argv)
 		sv_setiv(GvSV(gv_fetchpv(argv[0]+1, GV_ADD, SVt_PV)),1);
 	}
     }
+
     if ((PL_argvgv = gv_fetchpvs("ARGV", GV_ADD|GV_NOTQUAL, SVt_PVAV))) {
 	GvMULTI_on(PL_argvgv);
 	(void)gv_AVadd(PL_argvgv);
 	av_clear(GvAVn(PL_argvgv));
-	for (; argc > 0; argc--,argv++) {
-	    SV * const sv = newSVpv(argv[0],0);
+
+	__wgetmainargs(&argcw, &argvw, &envw, _CRT_glob, &si); // this also creates the global variable __wargv
+	for (; argc < argcw; argcw--) {
+	    argvw++;
+	}
+
+	for (; argc > 0; argc--,argv++,argcw--,argvw++) {
+	    /*SV * const sv = newSVpv(argv[0],0);*/
+	    /*av_push(GvAVn(PL_argvgv),sv);*/
+	    /*if (!(PL_unicode & PERL_UNICODE_LOCALE_FLAG) || PL_utf8locale) {*/
+	    /*    if (PL_unicode & PERL_UNICODE_ARGV_FLAG)*/
+	    /*         SvUTF8_on(sv);*/
+	    /*}*/
+	    /*if (PL_unicode & PERL_UNICODE_WIDESYSCALLS_FLAG) [> Sarathy? <]*/
+	    /*    (void)sv_utf8_decode(sv);*/
+
+	    needlen = W2AHELPER_NEEDLEN(argvw[0]);
+	    Newx(buf, needlen, char);
+	    W2AHELPER(argvw[0], buf, needlen*sizeof(char));
+
+	    SV * const sv = newSVpv(buf,0);
 	    av_push(GvAVn(PL_argvgv),sv);
-	    if (!(PL_unicode & PERL_UNICODE_LOCALE_FLAG) || PL_utf8locale) {
-		 if (PL_unicode & PERL_UNICODE_ARGV_FLAG)
-		      SvUTF8_on(sv);
-	    }
-	    if (PL_unicode & PERL_UNICODE_WIDESYSCALLS_FLAG) /* Sarathy? */
-		 (void)sv_utf8_decode(sv);
+	    (void)sv_utf8_decode(sv);
 	}
     }
 }

@@ -43,7 +43,6 @@ prepare: {
     my @bat_files = grep { m/\.bat$/i } @files;
 
     for my $dir (@dirs) {
-        warn $dir;
         Win32::CreateDirectory($dir);
     }
     for my $file (@files) {
@@ -89,7 +88,10 @@ chdir: {
     #    ok(  chdir($cwd), "cwd" );
     #}
 
-    after: {
+    if (${^TAINT}) {
+        eval { chdir($cwd) };
+        ok( $@, "Insecure dependency in chdir while running with -T switch" );
+    } else {
         # encoded latin1/codepage
         ok(  chdir(encode("latin1",$en_dir)) );
         ok(  chdir($cwd), "cwd" );
@@ -846,7 +848,14 @@ qx_and_system: {
 
     my $system = sub {
         my $bat = shift;
-        system($bat) == 0;
+
+        if (${^TAINT}) {
+            eval { system($bat) };
+            ok( $@, "Insecure dependency in chdir while running with -T switch" );
+        }
+        else {
+            system($bat) == 0;
+        }
     };
 
     after: {
@@ -902,11 +911,218 @@ qx_and_system: {
 #}
 
 ENV: {
-    my @utf8_keys   = grep { utf8::is_utf8($_) } keys %ENV;
-    my @utf8_values = grep { utf8::is_utf8($_) } keys %ENV;
+    utf8: {
+        my @utf8_keys   = grep { utf8::is_utf8($_) } keys %ENV;
+        my @utf8_values = grep { utf8::is_utf8($_) } keys %ENV;
 
-    ok( @utf8_keys );
-    ok( @utf8_values );
+        ok( @utf8_keys );
+        ok( @utf8_values );
+    }
+
+    getenv_and_putenv: {
+        my @keys1 = keys %ENV;
+        ok( !exists $ENV{ undef() } );
+        my @keys2 = keys %ENV;
+        ok( @keys1 == @keys2 );
+
+
+        # CPAN-1.9800/lib/CPAN/Distribution.pm:1905
+        #if ($pl_env) {
+        #    for my $e (keys %$pl_env) {
+        #        $ENV{$e} = $pl_env->{$e};
+        #    }
+        #}
+        bug: {
+            for (keys %ENV) {
+                $ENV{$_} = $ENV{$_}."";
+            }
+            my @keys3 = keys %ENV;
+            ok( @keys1 == @keys3 );
+            ok( !exists $ENV{ undef() } );
+            my @keys4 = keys %ENV;
+            ok( @keys1 == @keys4 ) or warn Dumper \%ENV;
+
+            #diag( 0+@keys1 );
+            #system(qq{$^X -e "print 0+(keys %ENV); use Data::Dumper; local \$Data::Dumper::Sortkeys=1; print Dumper(\\%ENV)"});
+        }
+    }
+
+    win32_spawnvp: {
+        my $dst = tempfile();
+        open(my $fh, ">", $dst);
+        print $fh qq{#!perl\nprint "Hello World.";\n};
+        close $fh;
+
+        my $MAX_PATH = 260;
+
+        my $long_arg = 'a' x $MAX_PATH;
+
+        my $out;
+        my $err;
+        my @command = ($^X, '-I', $long_arg, $dst);
+
+        use IPC::Open3;
+        my $pid = open3(
+            '<&STDIN', $out, $err,
+            @command
+        );
+        ok( $pid );
+        my $line = <$out>;
+        ok( $line );
+        is( $line, "Hello World.", "Hello World.");
+    }
+}
+
+opendir: {
+    my $en_dir = "$script_dir\\using_wide\\dir_en_latin";
+    my $ja_dir = "$script_dir\\using_wide\\dir_ja_日本語";
+    my $u8_dir = "$script_dir\\using_wide\\dir_ja_日本語♥";
+    utf8::upgrade($en_dir);
+    utf8::upgrade($ja_dir);
+    utf8::upgrade($u8_dir);
+    ok( utf8::is_utf8($en_dir) );
+    ok( utf8::is_utf8($ja_dir) );
+    ok( utf8::is_utf8($u8_dir) );
+
+    my $opendir = sub {
+        my ($enc, $dir) = @_;
+        if ($enc) {
+            $dir = encode($enc, $dir);
+        }
+        opendir(my $dh, $dir);
+    };
+
+    after: {
+        # encoded latin1/codepage
+        ok(  $opendir->("latin1", $en_dir) );
+        ok(  $opendir->("cp932",  $ja_dir) );
+        ok(  $opendir->("utf8",   $u8_dir) );
+    
+        # decoded
+        ok(  $opendir->(undef, $en_dir) );
+        ok(  $opendir->(undef, $ja_dir) );
+        ok(  $opendir->(undef, $u8_dir) );
+    
+        # encoded utf8
+        ok(  $opendir->("utf8", $en_dir) );
+        ok(  $opendir->("utf8", $ja_dir) );
+        ok(  $opendir->("utf8", $u8_dir) );
+    }
+}
+
+readdir: {
+    my $en_dir = "$script_dir\\using_wide\\dir_en_latin";
+    my $ja_dir = "$script_dir\\using_wide\\dir_ja_日本語";
+    my $u8_dir = "$script_dir\\using_wide\\dir_ja_日本語♥";
+    utf8::upgrade($en_dir);
+    utf8::upgrade($ja_dir);
+    utf8::upgrade($u8_dir);
+    ok( utf8::is_utf8($en_dir) );
+    ok( utf8::is_utf8($ja_dir) );
+    ok( utf8::is_utf8($u8_dir) );
+
+    my $readdir = sub {
+        my ($enc, $dir) = @_;
+        if ($enc) {
+            $dir = encode($enc, $dir);
+        }
+        my @files1 = do {
+            opendir(my $dh, $dir) or return;
+            readdir($dh);
+        };
+        if (@files1) {
+            my @decoded = grep { utf8::is_utf8($_) } @files1;
+            if (@decoded) {
+                return 1;
+            }
+        }
+        return;
+    };
+
+    after: {
+        # encoded latin1/codepage
+        ok(  $readdir->("latin1", $en_dir) );
+        ok(  $readdir->("cp932",  $ja_dir) );
+        ok(  $readdir->("utf8",   $u8_dir) );
+    
+        # decoded
+        ok(  $readdir->(undef, $en_dir) );
+        ok(  $readdir->(undef, $ja_dir) );
+        ok(  $readdir->(undef, $u8_dir) );
+    
+        # encoded utf8
+        ok(  $readdir->("utf8", $en_dir) );
+        ok(  $readdir->("utf8", $ja_dir) );
+        ok(  $readdir->("utf8", $u8_dir) );
+    }
+}
+
+getcwd: {
+    my $cwd = Cwd::getcwd();
+
+    my $en_dir = "$script_dir\\using_wide\\dir_en_latin";
+    my $ja_dir = "$script_dir\\using_wide\\dir_ja_日本語";
+    my $u8_dir = "$script_dir\\using_wide\\dir_ja_日本語♥";
+    utf8::upgrade($en_dir);
+    utf8::upgrade($ja_dir);
+    utf8::upgrade($u8_dir);
+    ok( utf8::is_utf8($en_dir) );
+    ok( utf8::is_utf8($ja_dir) );
+    ok( utf8::is_utf8($u8_dir) );
+
+    my $getcwd = sub {
+        my ($enc, $dir_orig) = @_;
+
+        my $dir = $dir_orig;
+        if ($enc) {
+            $dir = encode($enc, $dir_orig);
+        }
+        if ($dir =~ m/\?/) {
+            return chdir($dir) ? 0 : 1;
+        }
+        else {
+            chdir($dir) or return;
+            my $cwd2 = Cwd::getcwd();
+            my $pattern = do {
+                my $str = $dir_orig;
+                $str =~ s/\\/\//g;
+                $str =~ s/\.\.\///;
+                $str;
+            };
+            return $cwd2 =~ m/\Q$pattern\E$/;
+        }
+    };
+
+    my @dirs = ($en_dir, $ja_dir, $u8_dir);
+    my @encs = (undef, qw(latin1 cp932 utf8));
+
+    for my $dir (@dirs) {
+        for my $enc (@encs) {
+            ok(  $getcwd->($enc, $dir) );
+            ok(  chdir($cwd), "cwd" );
+        }
+    }
+}
+
+argvw: {
+    {
+        my $out = qx{$^X -e "use Encode; print encode('cp932', join(' ', \@ARGV))" english 日本語};
+        is( $out, encode("cp932", "english 日本語"));
+    }
+
+    use IPC::Open2;
+    my @cmds = (
+        [ qq{$^X -e "use Encode; print encode('cp932', join(' ', \@ARGV))" english 日本語}       ],
+        [ $^X, "-e", q{use Encode; print encode('cp932', join(' ', @ARGV))}, "english", "日本語" ],
+    );
+    for (@cmds) {
+        my @cmd = @$_;
+        my ($pid, $stdout, $stdin, $out);
+        my $pid = open2($stdout, $stdin, @cmd);
+        waitpid( $pid, 0 );
+        $out = do { local $/; <$stdout> }; 
+        is( $out, encode("cp932", "english 日本語"));
+    }
 }
 
 __END__
