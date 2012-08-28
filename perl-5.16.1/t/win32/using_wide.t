@@ -1032,8 +1032,9 @@ readdir: {
             readdir($dh);
         };
         if (@files1) {
-            my @decoded = grep { utf8::is_utf8($_) } @files1;
-            if (@decoded) {
+            my @decoded = grep {  utf8::is_utf8($_) } @files1;
+            my @encoded = grep { !utf8::is_utf8($_) } @files1;
+            if ( @decoded and @encoded ) {
                 return 1;
             }
         }

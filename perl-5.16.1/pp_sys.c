@@ -3896,9 +3896,7 @@ PP(pp_readdir)
 #else
         sv = newSVpv(dp->d_name, 0);
 #endif
-	if (is_utf8_string(SvPVX(sv),SvCUR(sv))) {
-	    SvUTF8_on(sv);
-	}
+	(void)sv_utf8_decode(sv);
 #ifndef INCOMPLETE_TAINTS
         if (!(IoFLAGS(io) & IOf_UNTAINT))
             SvTAINTED_on(sv);
