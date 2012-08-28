@@ -1105,6 +1105,51 @@ getcwd: {
     }
 }
 
+getdcwd: {
+    my $cwd = Cwd::getcwd();
+
+    my $en_dir = "$script_dir\\using_wide\\dir_en_latin";
+    my $ja_dir = "$script_dir\\using_wide\\dir_ja_日本語";
+    my $u8_dir = "$script_dir\\using_wide\\dir_ja_日本語♥";
+    utf8::upgrade($en_dir);
+    utf8::upgrade($ja_dir);
+    utf8::upgrade($u8_dir);
+    ok( utf8::is_utf8($en_dir) );
+    ok( utf8::is_utf8($ja_dir) );
+    ok( utf8::is_utf8($u8_dir) );
+
+    require File::Spec;
+    my $getdcwd = sub {
+        my ($dir) = @_;
+
+        if ( chdir($dir) ) {
+            my $cwd  = Cwd::getcwd();
+            my $dcwd = Cwd::getdcwd( (File::Spec->splitpath($cwd))[0] );
+            $cwd =~ s{\\}{/}g;
+            $dcwd =~ s{\\}{/}g;
+            my $ret = $cwd eq $dcwd ? 1 : 0;
+            if ($ret) {
+                return 1;
+            }
+            else {
+                diag("'$cwd - $dcwd'");
+            }
+        }
+        else {
+            diag("chdir $dir");
+        }
+
+        return 0;
+    };
+
+    my @dirs = ($en_dir, $ja_dir, $u8_dir);
+
+    for my $dir (@dirs) {
+        ok( $getdcwd->($dir), "getdcwd" );
+        ok( chdir($cwd), "cwd" );
+    }
+}
+
 argvw: {
     {
         my $out = qx{$^X -e "use Encode; print encode('cp932', join(' ', \@ARGV))" english 日本語};

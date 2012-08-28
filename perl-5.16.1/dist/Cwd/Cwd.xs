@@ -456,7 +456,8 @@ PPCODE:
 {
     dXSTARG;
     int drive;
-    char *dir;
+    char dir[MAXPATHLEN];
+    WCHAR *wdir;
 
     /* Drive 0 is the current drive, 1 is A:, 2 is B:, 3 is C: and so on. */
     if ( items == 0 ||
@@ -468,15 +469,18 @@ PPCODE:
     else
         croak("Usage: getdcwd(DRIVE)");
 
-    New(0,dir,MAXPATHLEN,char);
-    if (_getdcwd(drive, dir, MAXPATHLEN)) {
+    New(0,wdir,MAXPATHLEN,WCHAR);
+    if (_wgetdcwd(drive, wdir, MAXPATHLEN)) {
+	dir[0] = 0;
+	WideCharToMultiByte(CP_UTF8, 0, wdir, -1, dir, MAXPATHLEN, NULL, NULL);
         sv_setpv_mg(TARG, dir);
         SvPOK_only(TARG);
+	(void)sv_utf8_decode(TARG);
     }
     else
         sv_setsv(TARG, &PL_sv_undef);
 
-    Safefree(dir);
+    Safefree(wdir);
 
     XSprePUSH; PUSHs(TARG);
 #ifndef INCOMPLETE_TAINTS
