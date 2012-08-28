@@ -167,6 +167,22 @@ sv_to_wstr(pTHX_ SV *sv)
     return wstr;
 }
 
+WCHAR*
+sv_to_wstr2(pTHX_ SV *sv)
+{
+    DWORD wlen;
+    WCHAR *wstr;
+    STRLEN len;
+    char *str = SvPV(sv, len);
+    UINT cp = (SvUTF8(sv) || is_utf8_string((U8*)SvPVX_const(sv), SvCUR(sv))) ? CP_UTF8 : CP_ACP;
+
+    wlen = MultiByteToWideChar(cp, 0, str, (int)(len+1), NULL, 0);
+    New(0, wstr, wlen, WCHAR);
+    MultiByteToWideChar(cp, 0, str, (int)(len+1), wstr, wlen);
+
+    return wstr;
+}
+
 /* Convert wide character string to mortal SV.  Use UTF8 encoding
  * if the string cannot be represented in the system codepage.
  */
@@ -1578,19 +1594,27 @@ XS(w32_CopyFile)
 {
     dXSARGS;
     BOOL bResult;
-    char *pszSourceFile;
-    char szSourceFile[MAX_PATH+1];
+    WCHAR *pszSourceFile;
+    WCHAR szSourceFile[MAX_PATH+1];
+    WCHAR *src;
+    WCHAR *dst;
 
     if (items != 3)
 	Perl_croak(aTHX_ "usage: Win32::CopyFile($from, $to, $overwrite)");
 
-    pszSourceFile = PerlDir_mapA(SvPV_nolen(ST(0)));
-    if (strlen(pszSourceFile) < sizeof(szSourceFile)) {
-        strcpy(szSourceFile, pszSourceFile);
-        bResult = CopyFileA(szSourceFile, PerlDir_mapA(SvPV_nolen(ST(1))), !SvTRUE(ST(2)));
-        if (bResult)
-            XSRETURN_YES;
+    src = sv_to_wstr2(aTHX_ ST(0));
+    pszSourceFile = PerlDir_mapW(src);
+    if ((wcslen(pszSourceFile)*sizeof(WCHAR)) < sizeof(szSourceFile)) {
+        wcscpy(szSourceFile, pszSourceFile);
+	dst = sv_to_wstr2(aTHX_ ST(1));
+        bResult = CopyFileW(szSourceFile, PerlDir_mapW(dst), !SvTRUE(ST(2)));
+	Safefree(dst);
     }
+    Safefree(src);
+
+    if (bResult)
+        XSRETURN_YES;
+
     XSRETURN_NO;
 }
 

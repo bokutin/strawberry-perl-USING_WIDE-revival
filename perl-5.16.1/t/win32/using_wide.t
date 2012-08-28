@@ -2,6 +2,7 @@ use utf8;
 use strict;
 use lib '../ext/File-Glob/blib/lib';
 use lib '../ext/File-Glob/blib/arch';
+use lib '../lib';
 require './../t/test.pl';
 
 use Cwd;
@@ -1122,6 +1123,98 @@ argvw: {
         waitpid( $pid, 0 );
         $out = do { local $/; <$stdout> }; 
         is( $out, encode("cp932", "english 日本語"));
+    }
+}
+
+file_copy: {
+    my $en_file = "$script_dir\\using_wide\\file_en_latin.txt";
+    my $ja_file = "$script_dir\\using_wide\\file_ja_日本語.txt";
+    my $u8_file = "$script_dir\\using_wide\\file_ja_日本語♥.txt";
+    utf8::upgrade($en_file);
+    utf8::upgrade($ja_file);
+    utf8::upgrade($u8_file);
+    ok( utf8::is_utf8($en_file) );
+    ok( utf8::is_utf8($ja_file) );
+    ok( utf8::is_utf8($u8_file) );
+
+    my @copied;
+
+    require File::Copy;
+    my $copy = sub {
+        my ($enc, $file) = @_;
+        if ($enc) {
+            $file = encode($enc, $file);
+        }
+
+        my $src = $file;
+        my $dst = $src =~ s/\.txt$/2.txt/r or die;
+
+        push @copied, $dst;
+
+        if ( -f $src ) {
+            if ( !-f $dst ) {
+                if ( File::Copy::copy($src,$dst) ) {
+                    if ( -f $dst ) {
+                        unlink $dst;
+                        return 1;
+                    }
+                    else {
+                        diag('-f $dst');
+                    }
+                }
+                else {
+                    diag('copy($src,$dst)');
+                }
+            }
+            else {
+                diag('!-f $dst');
+            }
+        }
+        else {
+            diag('-f $src');
+        }
+
+        return 0;
+    };
+
+    #before: {
+    #    # encoded latin1/codepage
+    #    ok(  $copy->("latin1", $en_file) );
+    #    ok(  $copy->("cp932",  $ja_file) );
+    #    ok( !$copy->("utf8",   $u8_file) );
+    
+    #    # decoded
+    #    ok(  $copy->(undef, $en_file) );
+    #    ok( !$copy->(undef, $ja_file) );
+    #    ok( !$copy->(undef, $u8_file) );
+    
+    #    # encoded utf8
+    #    ok(  $copy->("utf8", $en_file) );
+    #    ok( !$copy->("utf8", $ja_file) );
+    #    ok( !$copy->("utf8", $u8_file) );
+    #}
+
+    after: {
+        # encoded latin1/codepage
+        ok(  $copy->("latin1", $en_file) );
+        ok(  $copy->("cp932",  $ja_file) );
+        ok(  $copy->("utf8",   $u8_file) );
+    
+        # decoded
+        ok(  $copy->(undef, $en_file) );
+        ok(  $copy->(undef, $ja_file) );
+        ok(  $copy->(undef, $u8_file) );
+    
+        # encoded utf8
+        ok(  $copy->("utf8", $en_file) );
+        ok(  $copy->("utf8", $ja_file) );
+        ok(  $copy->("utf8", $u8_file) );
+    }
+
+    END {
+        for (@copied) {
+            unlink $_;
+        }
     }
 }
 
