@@ -766,9 +766,14 @@ sub _win32_cwd {
         my $long    = Win32::GetLongPathName($short);
         my $decoded = utf8::is_utf8($long) ? $long : do {
             $CP_NUM ||= do {
-                my $out = `chcp`;
-                $out =~ m/ (\d+)$/ or die;
-                $1;
+                if ( Win32->can("GetACP") ) { # >= 0.45
+                    Win32::GetACP();
+                }
+                else {
+                    require Win32::API;
+                    my $GetACP = Win32::API->new("Kernel32", "GetACP", '', 'N');
+                    $GetACP->Call;
+                }
             };
             require Encode;
             Encode::decode("cp$CP_NUM", $long);
